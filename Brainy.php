@@ -13,15 +13,62 @@ class Brainy extends Matrix {
    * @param numeric $learning_rate  choose your learning rate
    * @param string $activation_fun  choose your activation funciton: RELU or SIGMOID or TANH
    */
-  public function __construct($learning_rate, $activation_fun) {
-    $activation_fun = strtolower($activation_fun);
-    if (!is_numeric($learning_rate)) throw new Exception('The learning rate is not numeric');
-    if (!in_array($activation_fun, ['relu', 'sigmoid', 'tanh'])) throw new Exception('The allowed activation funciton are: RELU, SIGMOID, TANH');
+  public function __construct( $learning_rate , $activation_fun ) {
+    
+    $activation_fun = strtolower( $activation_fun );
+    if ( !is_numeric( $learning_rate ) ) {
+      throw new Exception('The learning rate is not numeric');
+    }
+
+    if ( !in_array( $activation_fun , ['relu', 'sigmoid', 'tanh'] ) ) {
+      throw new Exception('The allowed activation funciton are: RELU, SIGMOID, TANH');
+    }
 
     $this->learning_rate = $learning_rate;
     $this->activation_fun = $activation_fun;
   }
 
+
+  public function initialise( $input , $outputs , $hidden_layer_neurons ) {
+
+    $input_neurons = count( $input[0] );
+    $output_neurons = count( $outputs[0] );
+
+    $weight['hidden_layer'] = array();
+    $bias['hidden_layer'] = array();
+
+    foreach($hidden_layer_neurons as $index => $size) {
+
+      if( $index == array_key_first( $hidden_layer_neurons ) ) {
+
+        // ------------------------------- hidden layer 1 ------------------------------------//
+        // getting the W1 weights random matrix (layer between input and the hidden layer) with size 2 x $hidden_layer_neurons
+        $weight['hidden_layer'][ $index ] = $this->getRandMatrix( $input_neurons , $hidden_layer_neurons[ $index ] );
+      }
+      else {
+
+        // ------------------------------- hidden layer 2 ------------------------------------//
+        // getting the W1 weights random matrix (layer between input and the hidden layer) with size 2 x $hidden_layer_neurons
+        // set matrix row to size of previous hidden layers, and the columb to the size of this hidden layer
+        $weight['hidden_layer'][ $index ] = $this->getRandMatrix( $hidden_layer_neurons[ $index-1 ] , $hidden_layer_neurons[ $index ] );
+      }
+
+      // getting the B1 bies random vector with size $hidden_layer_neurons
+      $bias['hidden_layer'][ $index ] = $this->getRandMatrix( $hidden_layer_neurons[ $index ] , 1 );
+    }
+
+    // ------------------------------- output layer ------------------------------------//
+
+    // getting the W2 weights random vector (layer between hidden layer and output) with size $hidden_layer_neurons x 1
+    $weight['output'] = $this->getRandMatrix( end( $hidden_layer_neurons ) , $output_neurons );
+
+    // getting the B2 bies random vector. The size is 1x1 because there is only one output neuron
+    $bias['output'] =  $this->getRandMatrix( $output_neurons , 1 );
+
+    return ['bias' => $bias
+          ,'weight' => $weight
+          ,];
+  }
 
   /**
    * Forward propagation: it gets the output (matrix A)
@@ -33,22 +80,46 @@ class Brainy extends Matrix {
    * @param array $b2     the bias vector (between the hidden layer and the output)
    * @return array        it returns the matrix A, which is the final output, and Z, which is the output of the hidden layer
    */
-  public function forward($input, $w1, $b1, $w2, $b2) {
+
+  public function forward_hidden_layer( $input , $weight , $bias )  {
+
     // Z = TANH( W1°X + B1 )    --> TANH or RELU or SIGMOID
-    $dot = $this->matrixDotProduct($this->matrixTranspose($w1), $input);
-    $sum = $this->matrixSum($dot, $b1);
-    $z = $this->matrixOperation($this->activation_fun, $sum);
+    $dot = $this->matrixDotProduct( $this->matrixTranspose( $weight ), $input );
+    $sum = $this->matrixSum( $dot , $bias );
+    $z = $this->matrixOperation( $this->activation_fun , $sum );
+    return $z;
 
+  }
+  public function forward( $input, $weight , $bias ) {
+
+    $z = array ();
+
+    foreach( ( $weight['hidden_layer'] ) as $index => $weights ) {
+
+      // if this is the first hidden layer, set input as the input
+      if( $index == array_key_first( $weight ) ) {
+        $z[ $index ] = $this->forward_hidden_layer( $input, $weight['hidden_layer'][ $index ], $bias['hidden_layer'][ $index ] );
+
+      }
+      else {
+        // else set the previous hidden layers output as this hidden layers input
+        $z[ $index ] = $this->forward_hidden_layer( end( $z ) , $weight['hidden_layer'][ $index ], $bias['hidden_layer'][ $index ] );
+      }
+      // Z = TANH( W1°X + B1 )    --> TANH or RELU or SIGMOID
+    }
+
+    // use the last hidden layers output as the output layers input
     // A = SOFTMAX( W2°Z + B2 )
-    $dot = $this->matrixDotProduct($this->matrixTranspose($w2), $z);
-    $sum = $this->matrixSum($dot, $b2);
-    $a = $this->matrixSoftmax($sum);
-
+    $dot = $this->matrixDotProduct( $this->matrixTranspose( $weight['output'] ), end( $z ) );
+    $sum = $this->matrixSum( $dot , $bias['output'] );
+    $a = $this->matrixSoftmax( $sum );
+    
     return [
-       'A' => $a // output
-      ,'Z' => $z // output of the hidden layer
+       'output' => $a // output
+      ,'hidden_layer' => $z // output of the hidden layer
     ];
   }
+
 
 
   /**
@@ -64,48 +135,163 @@ class Brainy extends Matrix {
    * @param array $b2     the bias vector (between the hidden layer and the output)
    * @return array        matrices of the weights (W1 and W2) and bias (B1 and B2) with new values
    */
-  public function backPropagation($r, $input, $output, $w1, $w2, $b1, $b2) {
-    // correcting the weights W2
-    // W2 = W2 - ( learning_rate * (A - Out) ° Z^T )^T
-    $diff = $this->matrixSub($r['A'], $output);
-    $z_t = $this->matrixTranspose($r['Z']);
-    $prod = $this->matrixDotProduct($diff, $z_t);
-    $corr_mat = $this->matrixTimesValue($prod, $this->learning_rate);
-    $w2 = $this->matrixSub($w2, $this->matrixTranspose($corr_mat));
+  public function backPropagation( $predicted , $input , $output , $weight , $bias ) {
 
-    // correcting the bias B2
-    // B2 = B2 - learning_rate * (A - Out)
-    $corr_mat = $this->matrixTimesValue($diff, $this->learning_rate);
-    $b2 = $this->matrixSub($b2, $corr_mat);
+    // print("<pre>".print_r($weight, true)."</pre>");
 
-    // calculating the derivative depending on the activate funciton
-    // dZ = (W2 ° (A - Out)) * DERIVATIVE(Z)
-    if ($this->activation_fun == 'tanh') $z_der = $this->tanhDerivative($r['Z']);
-    else if ($this->activation_fun == 'sigmoid') $z_der = $this->sigmoidDerivative($r['Z']);
-    else if ($this->activation_fun == 'relu') $z_der = $this->reluDerivate($r['Z']);
+    // determine the error, compare the difference between the predicted out vs the expected output
+    // this is (A - Ouput) wherever this is found it can be subsituted for difference
+    $difference = $this->matrixSub( $predicted['output'] , $output );
 
-    $prod = $this->matrixDotProduct($w2, $diff);
-    $dZ = $this->matrixProductValueByValue($prod, $z_der);
+    // last hidden layer activated output, difference (total error of the network), weight of the hidden layer, bias of the hidden layer
+    $last_layer = $this->last_layer_correction( end( $predicted['hidden_layer'] ), $difference , $weight['output'] , $bias['output'] );
 
-    // correctiong the weights W1
-    // W1 = W1 - ( learning_rate * (dZ ° In^T) )^T
-    $prod = $this->matrixDotProduct($dZ, $this->matrixTranspose($input));
-    $corr_mat = $this->matrixTimesValue($prod, $this->learning_rate);
-    $w1 = $this->matrixSub($w1,$this->matrixTranspose($corr_mat) );
+    $index = count( $predicted['hidden_layer'] );
 
-    // correcting the bias B1
-    // B1 = B1 - learning_rate * dZ
-    $corr_mat = $this->matrixTimesValue($dZ, $this->learning_rate);
-    $b1 = $this->matrixSub($b1, $corr_mat);
+    while( $index ) {
+      
+      $key = $index - 1;
+
+      if( $key == array_key_first( $predicted['hidden_layer'] ) ) {
+
+        // if hidden layer is the first hidden layer set input to input
+        // hidden layer is the last hidden layer set previous weights to the weight of output weights
+        if( $key == array_key_last( $predicted['hidden_layer'] ) ) {
+
+          $hidden_layer[ $key ] = $this->hidden_layer_correction( $input , $predicted['hidden_layer'][ $key ] , $difference, $weight['hidden_layer'][ $key ] , $bias['hidden_layer'][ $key ] , $weight['output'] );
+        }
+        else {
+
+          // else set previous weights to the weight of the hidden layer that came after this hidden layer
+          $hidden_layer[ $key ] = $this->hidden_layer_correction( $input, $predicted['hidden_layer'][ $key ] , $difference , $weight['hidden_layer'][ $key ] , $bias['hidden_layer'][ $key ] , $weight['hidden_layer'][ $key+1 ] , end( $hidden_layer) ['drivative'] );
+        }
+      }
+      else {
+
+        // else set input to the output of the hidden layer that came before it
+        // input to the hidden layer, output of the hidden layer, difference (total error of the network), weight of the hidden layer, bias of the hidden layer, weight of the next layer, drivative of the previous hidden layer
+        // hidden layer is the last hidden layer set previous weights to the weight of output weights
+        if($key == array_key_last($predicted['hidden_layer'])) {
+          $hidden_layer[ $key ] = $this->hidden_layer_correction( $predicted['hidden_layer'][ $key-1 ] , $predicted['hidden_layer'][ $key ] , $difference, $weight['hidden_layer'][ $key ] , $bias['hidden_layer'][ $key ] , $weight['output'] );
+        }
+        else {
+          // else set previous weights to the weight of the hidden layer that came after this hidden layer
+          $hidden_layer[ $key ] = $this->hidden_layer_correction( $predicted['hidden_layer'][ $key-1 ] , $predicted['hidden_layer'][ $key ] , $difference, $weight['hidden_layer'][ $key ] , $bias['hidden_layer'][ $key ] , $weight['hidden_layer'][ $key+1 ] , end( $hidden_layer )['drivative'] );
+        }
+      }
+      --$index;
+    }
+
+    // // input to the hidden layer, output of the hidden layer, difference (total error of the network), weight of the hidden layer, bias of the hidden layer, weight of the next layer
+    // $hidden_layer = $this->hidden_layer_correction($input, $predicted['hidden_layer'][0], $difference, $weight['hidden_layer'][0], $bias['hidden_layer'][0], $weight['output']);
+
+    //https://stackoverflow.com/questions/5422242/array-map-not-working-in-classes
 
     return [
-       'w1' => $w1
-      ,'w2' => $w2
-      ,'b1' => $b1
-      ,'b2' => $b2
+      'hidden_layer' => [ 'weight' => array_values( array_reverse( array_map( array( $this, "return_weights" ), $hidden_layer ) ) ),
+                         'bias' => array_values( array_reverse( array_map( array( $this, "return_bias" ), $hidden_layer ) ) ) ],
+      'output' => [ 'weight' => $last_layer['weights'],
+                    'bias' => $last_layer['bias']],
     ];
   }
 
+  public function return_weights( $layer ) {
+    return $layer['weights'];
+  }
+
+  public function return_bias( $layer ) {
+    return $layer['bias'];
+  }
+  public function last_layer_correction( $last_activated_output , $difference , $weights , $bias ) {
+
+    // -------------------------- this is for the last layer --------------------------//
+    // correcting the weights, where ( weight = weights - ( learning_rate * (A - Out) ° Z^T )^T )
+    // ( weights = weights - ( learning_rate * ( difference ) ° Z^T )^T )
+    // tranpose z_transform output of the hidden layer, using the last hidden layer activated output
+    $z_transform = $this->matrixTranspose( $last_activated_output );
+
+    // calculate the dot product z transposed and difference
+    $product = $this->matrixDotProduct( $difference , $z_transform );
+    $correction = $this->matrixTimesValue( $product , $this->learning_rate );
+
+    // subsitute the orginal weight from the new correction weight
+    $weights = $this->matrixSub( $weights, $this->matrixTranspose( $correction ) );
+
+    // correcting the bias where ( bias = bias - learning_rate * (A - Out) )
+    // ( bias = bias - learning_rate * ( difference ) )
+    $correction = $this->matrixTimesValue( $difference , $this->learning_rate );
+
+    // subsitute the orginal bias from the new correction bias
+    $bias = $this->matrixSub( $bias , $correction );
+
+    return [
+      'weights' => $weights
+     ,'bias' => $bias
+   ];
+
+  }
+
+  // using the chain rule to calculate the corrections new weights and biases 
+  // using the drivative of the of the output of that layer
+  // the input to this layer, the activated output of this this layer, and the systems error
+  public function hidden_layer_correction( $input , $output , $difference , $weights , $bias , $weight_previous , $dZ = null ) {
+
+    // -------------------------- this is for the first layer of the neaural network -------------------------- //
+    // calculating the derivative depending on the activate funciton, where ( dZ = (weights[n-1] ° (A - Out)) * DERIVATIVE(Z) ) 
+    // where ( dZ = (weights[n-1] ° ( difference )) * DERIVATIVE(Z) ) 
+
+    // Z == the output of the hidden layer
+    // weights ==  the weights of the hidden layer
+    // weights[n-1] == the weights of the previous layer
+
+    // calculate the chain rule drivative 
+    if( $dZ == null ) {
+      $z_drivative = $this->derivative( $output );
+      $product = $this->matrixDotProduct( $weight_previous , $difference);
+      $dZ = $this->matrixProductValueByValue( $product ,  $z_drivative );
+    }
+    else {
+      $z_drivative = $this->derivative($output);
+      $product = $this->matrixDotProduct( $weight_previous , $dZ);
+      $dZ = $this->matrixProductValueByValue( $product ,  $z_drivative);
+    }
+
+    // correctiong the weights, where (weights = weights - ( learning_rate * (dZ ° In^T) )^T)
+    $product = $this->matrixDotProduct( $dZ , $this->matrixTranspose( $input ) );
+    $correction = $this->matrixTimesValue( $product , $this->learning_rate );
+
+    // subsitute the orginal weight from the new correction weight
+    $weights = $this->matrixSub( $weights, $this->matrixTranspose( $correction ) );
+
+    // correcting the bias bias, where (bias = bias - learning_rate * dZ)
+    // bias == the bias of this hidden layer
+    $correction = $this->matrixTimesValue( $dZ , $this->learning_rate );
+
+    // subsitute the orginal bias from the new correction bias
+    $bias = $this->matrixSub( $bias, $correction );
+
+    return [
+      'weights' => $weights
+     ,'bias' => $bias
+     ,'drivative'=> $dZ
+     ,
+   ];
+  }
+
+  // return z_drivative depending upon the activation function being used
+  public function derivative( $Z ) {
+    if ( $this->activation_fun == 'tanh' ) {
+      $z_drivative = $this->tanhDerivative( $Z );
+    }
+    else if ( $this->activation_fun == 'sigmoid' ) {
+      $z_drivative = $this->sigmoidDerivative( $Z );
+    }
+    else if ( $this->activation_fun == 'relu' ) {
+      $z_drivative = $this->reluDerivate( $Z );
+    }
+
+    return $z_drivative;
+  }
 
   /**
    * It calculates the Sigmoid derivative of a given matrix
@@ -114,9 +300,9 @@ class Brainy extends Matrix {
    * @param array $matrix   the matrix where you want to calculate the derivative
    * @return array          the final matrix
    */
-  public function sigmoidDerivative($z) {
-    $z_2 = $this->matrixProductValueByValue($z,$z);
-    return $this->matrixSub($z, $z_2);
+  public function sigmoidDerivative( $z ) {
+    $z_2 = $this->matrixProductValueByValue( $z , $z );
+    return $this->matrixSub( $z , $z_2 );
   }
 
 
@@ -127,12 +313,13 @@ class Brainy extends Matrix {
    * @param array $matrix   the matrix where you want to calculate the derivative
    * @return array          the final matrix
    */
-  public function reluDerivate($z) {
+  public function reluDerivate( $z ) {
+
     $relu_der = [];
 
-    foreach($z as $row_num => $row) {
-      foreach($row as $col_num => $val) {
-        $relu_der[$row_num][$col_num] = ($val > 0) ? 1 : 0;
+    foreach( $z as $row_num => $row ) {
+      foreach( $row as $col_num => $val ) {
+        $relu_der[ $row_num ][ $col_num ] = ( $val > 0 ) ? 1 : 0;
       }
     }
 
@@ -147,10 +334,10 @@ class Brainy extends Matrix {
    * @param array $matrix   the matrix where you want to calculate the derivative
    * @return array          the final matrix
    */
-  public function tanhDerivative($matrix) {
-    $matrix_square = $this->matrixProductValueByValue($matrix,$matrix);
-    $matrix_neg = $this->matrixTimesValue($matrix_square, -1);
-    return $this->matrixSumValue($matrix_neg, 1);
+  public function tanhDerivative( $matrix ) {
+    $matrix_square = $this->matrixProductValueByValue( $matrix , $matrix );
+    $matrix_neg = $this->matrixTimesValue( $matrix_square , -1);
+    return $this->matrixSumValue( $matrix_neg , 1);
   }
 
 

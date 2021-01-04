@@ -1,7 +1,7 @@
 <?php
 ini_set('display_errors', 'On');
 error_reporting(E_ALL | E_STRICT);
-
+set_time_limit(0);
 
 include 'Brainy.php';
 
@@ -14,7 +14,7 @@ $epochs = 30000;
 // choose the learning rate
 $learning_rate = 0.001;
 // numbers of hidden neurons of the first (and only one) layer
-$hidden_layer_neurons = 3;
+$hidden_layer_neurons = array(3, 5, 7);
 // activation functions: relu , tanh , sigmoid
 $activation_fun = 'relu';
 
@@ -39,44 +39,14 @@ $xor_out = [
 ];
 
 
-$input_neurons = count($xor_in[0]);
-$output_neurons = count($xor_out[0]);
+$initialise = $brain->initialise($xor_in, $xor_out, $hidden_layer_neurons);
 
-// getting the W1 weights random matrix (layer between input and the hidden layer) with size 2 x $hidden_layer_neurons
-$w1 = $w1_before = $brain->getRandMatrix($input_neurons, $hidden_layer_neurons);
+$bias = $initialise['bias'];
+$weight = $initialise['weight'];
 
-// getting the W2 weights random vector (layer between hidden layer and output) with size $hidden_layer_neurons x 1
-$w2 = $w2_before = $brain->getRandMatrix($hidden_layer_neurons , $output_neurons);
+$weights_before = $weight;
 
-// getting the B1 bies random vector with size $hidden_layer_neurons
-$b1 = $b1_before = $brain->getRandMatrix($hidden_layer_neurons , 1);
-
-// getting the B2 bies random vector. The size is 1x1 because there is only one output neuron
-$b2 = $b2_before =  $brain->getRandMatrix($output_neurons, 1);
-
-
-
-$w1 = $w1_before = [
-	[ -0.43 , -0.21 , -0.58 ],
-	[ -0.05 ,  0.84 , -0.07 ],
-];
-
-$b1 = $b1_before = [
-	[ -0.86 ],
-	[ -0.76 ],
-	[  0.93 ],
-];
-
-$w2 = $w2_before = [
-	[ 0.61 ],
-	[ 0.02 ],
-	[ 0.94 ],
-];
-$b2 = $b1_before = [
-	[ -0.88 ],
-];
-
-
+$bias_before = $bias;
 
 // this is for the chart
 $graph = [];
@@ -99,17 +69,19 @@ $execution_start_time = microtime(true);
 for ($i=0; $i<$epochs; $i++) {
 	foreach($xor_in as $index => $input) {
 		// forward the input and get the output
- 		$forward_response = $brain->forward($input, $w1, $b1, $w2, $b2);
+ 		$forward_response = $brain->forward($input, $weight, $bias);
 	
 		// backprotagating the error and finding the new weights and biases
-		$new_setts = $brain->backPropagation($forward_response, $input, $xor_out[$index], $w1, $w2, $b1, $b2);
-		$w1 = $new_setts['w1'];
-		$w2 = $new_setts['w2'];
-		$b1 = $new_setts['b1'];
-		$b2 = $new_setts['b2'];
+		$new_setts = $brain->backPropagation($forward_response, $input, $xor_out[$index], $weight, $bias);
+
+		$weight['hidden_layer'] = $new_setts['hidden_layer']['weight'];
+		$bias['hidden_layer'] = $new_setts['hidden_layer']['bias'];
+
+		$weight['output']  = $new_setts['output']['weight'];
+		$bias['output'] = $new_setts['output']['bias'];
 		
 		// this is only for che accuracy chart
-		$f1 = round($brain->getScalarValue($forward_response['A']) , 2);
+		$f1 = round($brain->getScalarValue($forward_response['output']) , 2);
 		$f2 = round($brain->getScalarValue($xor_out[$index]) , 2);
 		if ($f2 < 0) $f2 = 0;
 		if ($f1 == $f2) $correct++;
@@ -161,7 +133,7 @@ $g_vals = trim($g_vals, ',');
 
 
 <br />
-<h3>Hidden neurons: <?= $hidden_layer_neurons ?></h3>
+<h3>Hidden neurons: <?= print_r($hidden_layer_neurons) ?></h3>
 <h3>Learning rate: <?= $learning_rate ?></h3>
 <h3>Epochs: <?= $epochs ?></h3>
 <h3>Execution time: <?= $execution_time ?> sec</h3>
@@ -176,37 +148,26 @@ $g_vals = trim($g_vals, ',');
 <?php
 	echo '<hr /><h1>Prediction:</h1>';
 	foreach($xor_in as $index => $input) {
-		$prediction = $brain->forward($input, $w1, $b1, $w2, $b2);
+		$prediction = $brain->forward($input, $weight, $bias);
 
-		sm( $prediction['A'] );
+		print_r( $prediction['output'] );
 	}
 
 	echo '<hr /><h1>Before</h1>';
-	echo '<br /><h4>Weights matrix W1</h4>';
-	sm($w1_before);
-	echo '<br /><h4>Bias matrix B1</h4>';
-	sm($b1_before);
-	echo '<br /><h4>Weights matrix W2</h4>';
-	sm($w2_before);
-	echo '<br /><h4>Bias matrix B2</h4>';
-	sm($b2_before);
+	echo '<br /><h4>Weights matrix</h4>';
+	print_r($weights_before);
+	echo '<br /><h4>Bias matrix</h4>';
+	print_r($bias_before);
 	
 	echo '<hr /><h1>After</h1>';
-	echo '<br /><h4>Weights matrix W1</h4>';
-	sm($w1);
-	echo '<br /><h4>Bias matrix B1</h4>';
-	sm($b1);
-	echo '<br /><h4>Weights matrix W2</h4>';
-	sm($w2);
-	echo '<br /><h4>Bias matrix B2</h4>';
-	sm($b2);
+	echo '<br /><h4>Weights matrix</h4>';
+	print_r($weight);
+	echo '<br /><h4>Bias matrix</h4>';
+	print_r($bias);
 	echo '<hr />';
 	
-	$str  = '$w1 = $w1_before = '.var_export($w1_before, true).';' ."\n";
-	$str .= '$b1 = $b1_before = '.var_export($b1_before, true).';' ."\n";
-	$str .= '$w2 = $w2_before = '.var_export($w2_before, true).';' ."\n";
-	$str .= '$b2 = $b2_before = '.var_export($b2_before, true).';' ."\n";
-
+	$str  = '$weights = '.var_export($weights_before, true).';' ."\n";
+	$str .= '$bias = '.var_export($bias_before, true).';' ."\n";
 	dd($str, false);
 ?>
 
